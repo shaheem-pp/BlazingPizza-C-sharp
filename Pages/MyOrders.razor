@@ -1,0 +1,121 @@
+@page "/myorders"
+@inject HttpClient HttpClient
+@inject NavigationManager NavigationManager
+@implements IDisposable
+
+
+<div class="main">
+    @if (ordersWithStatus == null)
+    {
+        <text>Loading...</text>
+    }
+    else if (!ordersWithStatus.Any())
+    {
+        <h2>No orders placed</h2>
+        <a class="btn btn-success" href="">Order some pizza</a>
+    }
+    else
+    {
+        <div class="list-group orders-list">
+            @foreach (var item in ordersWithStatus)
+            {
+                <div class="list-group-item">
+                    <div class="col">
+                        <h5>@item.Order.CreatedTime.ToLongDateString()</h5>
+                        Items:
+                        <strong>@item.Order.Pizzas.Count()</strong>;
+                        Total price:
+                        <strong>£@item.Order.GetFormattedTotalPrice()</strong>
+                    </div>
+                    <div class="col">
+                        Status: <strong>@item.StatusText</strong>
+                        @if (!item.IsDelivered)
+                        {
+                            <br />
+                            <small class="text-muted">
+                                @if (item.StatusText == "Preparing")
+                                {
+                                    var timeLeft = item.Order.CreatedTime.Add(OrderWithStatus.PreparationDuration) - DateTime.Now;
+                                    if (timeLeft.TotalSeconds > 0)
+                                    {
+                                        <text>Ready in @timeLeft.ToString(@"mm\:ss")</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Ready soon...</text>
+                                    }
+                                }
+                                else if (item.StatusText == "Out for delivery")
+                                {
+                                    var timeLeft = item.Order.CreatedTime.Add(OrderWithStatus.PreparationDuration).Add(OrderWithStatus.DeliveryDuration) - DateTime.Now;
+                                    if (timeLeft.TotalSeconds > 0)
+                                    {
+                                        <text>Arriving in @timeLeft.ToString(@"mm\:ss")</text>
+                                    }
+                                    else
+                                    {
+                                        <text>Arriving soon...</text>
+                                    }
+                                }
+                            </small>
+                        }
+                    </div>
+                    @if (@item.StatusText != "Delivered")
+                    {
+                        <div class="col flex-grow-0">
+                            <a href="myorders/@item.Order.OrderId" class="btn btn-success">
+                                Track &gt;
+                            </a>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    List<OrderWithStatus> ordersWithStatus = new List<OrderWithStatus>();
+    private Timer timer;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        ordersWithStatus = await HttpClient.GetFromJsonAsync<List<OrderWithStatus>>(
+        $"{NavigationManager.BaseUri}orders");
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Update the UI and refresh order status every second
+            timer = new Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    // Refresh order data from server to get updated statuses
+                    try
+                    {
+                        var updatedOrders = await HttpClient.GetFromJsonAsync<List<OrderWithStatus>>(
+                            $"{NavigationManager.BaseUri}orders");
+                        if (updatedOrders != null)
+                        {
+                            ordersWithStatus = updatedOrders;
+                        }
+                    }
+                    catch
+                    {
+                        // If there's an error fetching data, just update the display with current data
+                    }
+                    
+                    StateHasChanged();
+                });
+            }, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+        }
+    }
+
+    public void Dispose()
+    {
+        timer?.Dispose();
+    }
+}
